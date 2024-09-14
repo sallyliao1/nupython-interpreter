@@ -1,0 +1,321 @@
+        -:    0:Source:ram.c
+        -:    0:Graph:ram.gcno
+        -:    0:Data:ram.gcda
+        -:    0:Runs:1
+        -:    0:Programs:1
+        -:    1:/*ram.c*/
+        -:    2:
+        -:    3://
+        -:    4:// deals with the RAM/memory module for the nuPython interpreter
+        -:    5://
+        -:    6:// Sally Liao
+        -:    7://
+        -:    8:// Template: Prof. Joe Hummel
+        -:    9:// Northwestern University
+        -:   10:// CS 211
+        -:   11://
+        -:   12:
+        -:   13:#include <stdio.h>
+        -:   14:#include <stdlib.h>
+        -:   15:#include <stdbool.h> // true, false
+        -:   16:#include <string.h>
+        -:   17:#include <assert.h>
+        -:   18:
+        -:   19:#include "ram.h"
+        -:   20:
+        -:   21:
+        -:   22://
+        -:   23:// Public functions:
+        -:   24://
+        -:   25:
+        -:   26://
+        -:   27:// ram_init
+        -:   28://
+        -:   29:// Returns a pointer to a dynamically-allocated memory
+        -:   30:// for storing nuPython variables and their values. All
+        -:   31:// memory cells are initialized to the value None.
+        -:   32://
+       24:   33:struct RAM* ram_init(void)
+        -:   34:{
+       24:   35:  struct RAM* ptr = (struct RAM*) malloc(sizeof(struct RAM));
+       24:   36:  ptr->capacity = 4;
+       24:   37:  ptr->cells = (struct RAM_CELL*) malloc(sizeof(struct RAM_CELL) * ptr->capacity);
+      120:   38:  for (int i = 0; i < ptr->capacity; i++) {
+       96:   39:    ptr->cells[i].value.value_type = RAM_TYPE_NONE;
+        -:   40:  }
+       24:   41:  ptr->num_values = 0;
+       24:   42:  return ptr;
+        -:   43:}
+        -:   44:
+        -:   45:
+        -:   46://
+        -:   47:// ram_destroy
+        -:   48://
+        -:   49:// Frees the dynamically-allocated memory associated with
+        -:   50:// the given memory. After the call returns, you cannot
+        -:   51:// use the memory.
+        -:   52://
+       24:   53:void ram_destroy(struct RAM* memory)
+        -:   54:{
+       24:   55:  free(memory->cells);
+       24:   56:  free(memory);
+       24:   57:  return;
+        -:   58:}
+        -:   59:
+        -:   60:
+        -:   61://
+        -:   62:// ram_get_addr
+        -:   63:// 
+        -:   64:// If the given identifier (e.g. "x") has been written to 
+        -:   65:// memory, returns the address of this value --- an integer
+        -:   66:// in the range 0..N-1 where N is the number of values currently 
+        -:   67:// stored in memory. Returns -1 if no such identifier exists 
+        -:   68:// in memory. 
+        -:   69:// 
+        -:   70:// NOTE: a variable has to be written to memory before you can
+        -:   71:// get its address. Once a variable is written to memory, its
+        -:   72:// address never changes.
+        -:   73://
+        5:   74:int ram_get_addr(struct RAM* memory, char* identifier)
+        -:   75:{
+       15:   76:  for (int i = 0; i < memory->num_values; i++) {
+       14:   77:    if (strcmp(identifier, memory->cells[i].identifier) == 0) {
+        4:   78:      return i;
+        -:   79:    }
+        -:   80:  }
+        1:   81:  return -1;
+        -:   82:}
+        -:   83:
+        -:   84://
+        -:   85:// insert_type
+        -:   86://
+        -:   87:// given a value to insert and the RAM_VALUE* to insert the value into,
+        -:   88:// insert the value into the correct .i, .d, or .s
+        -:   89://
+        -:   90:// returns false if fails
+        -:   91://
+        -:   92:
+       25:   93:bool insert_type(struct RAM_VALUE* result, struct RAM_CELL cell) {
+       25:   94:  if (cell.value.value_type == RAM_TYPE_INT || cell.value.value_type == RAM_TYPE_PTR || cell.value.value_type == RAM_TYPE_BOOLEAN) {
+        3:   95:    result->types.i = cell.value.types.i;
+        -:   96:  }
+       22:   97:  else if (cell.value.value_type == RAM_TYPE_REAL) {
+        1:   98:    result->types.d = cell.value.types.d;
+        -:   99:  }
+       21:  100:  else if (cell.value.value_type == RAM_TYPE_STR) {
+       21:  101:    char* value = (char*) malloc(sizeof(char) * 32);
+       21:  102:    value = strdup(cell.value.types.s);
+        -:  103:    // CHECK LATER (might lose bytes) (need to free og string when copying)
+        -:  104:    // for (size_t i = 0; i < strlen(cell.value.types.s); i++) {
+        -:  105:    //   free(&cell.value.types.s + i);
+        -:  106:    // }
+        -:  107:    // END CHECK
+       21:  108:    result->types.s = value;
+        -:  109:  }
+    #####:  110:  else if (cell.value.value_type != RAM_TYPE_NONE) {
+    #####:  111:    return false;
+        -:  112:  }
+       25:  113:  result->value_type = cell.value.value_type;
+       25:  114:  return true;
+        -:  115:}
+        -:  116:
+        -:  117://
+        -:  118:// ram_read_cell_by_addr
+        -:  119://
+        -:  120:// Given a memory address (an integer in the range 0..N-1), 
+        -:  121:// returns a COPY of the value contained in that memory cell.
+        -:  122:// Returns NULL if the address is not valid.
+        -:  123://
+        -:  124:// NOTE: this function allocates memory for the value that
+        -:  125:// is returned. The caller takes ownership of the copy and 
+        -:  126:// must eventually free this memory via ram_free_value().
+        -:  127://
+        -:  128:// NOTE: a variable has to be written to memory before its
+        -:  129:// address becomes valid. Once a variable is written to memory,
+        -:  130:// its address never changes.
+        -:  131://
+       18:  132:struct RAM_VALUE* ram_read_cell_by_addr(struct RAM* memory, int address)
+        -:  133:{
+        -:  134:  // check to make sure the address exists
+       18:  135:  if (address >= memory->num_values || address < 0) {
+        4:  136:    return NULL;
+        -:  137:  }
+        -:  138:
+       14:  139:  struct RAM_VALUE* result = (struct RAM_VALUE*) malloc(sizeof(struct RAM_VALUE));
+       14:  140:  struct RAM_CELL cell = memory->cells[address]; // cell at the given address
+        -:  141:
+       14:  142:  if (!insert_type(result, cell)) {
+    #####:  143:    return NULL;
+        -:  144:  }
+        -:  145:
+       14:  146:  return result;
+        -:  147:}
+        -:  148:
+        -:  149:
+        -:  150:// 
+        -:  151:// ram_read_cell_by_id
+        -:  152://
+        -:  153:// If the given identifier (e.g. "x") has been written to 
+        -:  154:// memory, returns a COPY of the value contained in memory.
+        -:  155:// Returns NULL if no such identifier exists in memory.
+        -:  156://
+        -:  157:// NOTE: this function allocates memory for the value that
+        -:  158:// is returned. The caller takes ownership of the copy and 
+        -:  159:// must eventually free this memory via ram_free_value().
+        -:  160://
+        9:  161:struct RAM_VALUE* ram_read_cell_by_id(struct RAM* memory, char* identifier)
+        -:  162:{
+        -:  163:  struct RAM_CELL cur_cell;
+        9:  164:  struct RAM_VALUE* result = (struct RAM_VALUE*)malloc(sizeof(struct RAM_VALUE));
+       23:  165:  for (int i = 0; i < memory->num_values; i++) {
+       21:  166:    cur_cell = memory->cells[i];
+       21:  167:    if (strcmp(cur_cell.identifier, identifier) == 0) {
+        7:  168:      if (!insert_type(result, cur_cell)) {
+    #####:  169:        return NULL;
+        -:  170:      }
+        7:  171:      return result;
+        -:  172:    }
+        -:  173:  }
+        2:  174:  return NULL;
+        -:  175:}
+        -:  176:
+        -:  177:
+        -:  178://
+        -:  179:// ram_free_value
+        -:  180://
+        -:  181:// Frees the memory value returned by ram_read_cell_by_id and
+        -:  182:// ram_read_cell_by_addr.
+        -:  183://
+    #####:  184:void ram_free_value(struct RAM_VALUE* value)
+        -:  185:{
+    #####:  186:  free(value);
+    #####:  187:  return;
+        -:  188:}
+        -:  189:
+        -:  190://
+        -:  191:// ram_write_cell_by_addr
+        -:  192://
+        -:  193:// Writes the given value to the memory cell at the given 
+        -:  194:// address. If a value already exists at this address, that
+        -:  195:// value is overwritten by this new value. Returns true if 
+        -:  196:// the value was successfully written, false if not (which 
+        -:  197:// implies the memory address is invalid).
+        -:  198:// 
+        -:  199:// NOTE: if the value being written is a string, it will
+        -:  200:// be duplicated and stored.
+        -:  201:// 
+        -:  202:// NOTE: a variable has to be written to memory before its
+        -:  203:// address becomes valid. Once a variable is written to memory,
+        -:  204:// its address never changes.
+        -:  205://
+        5:  206:bool ram_write_cell_by_addr(struct RAM* memory, struct RAM_VALUE value, int address)
+        -:  207:{
+        -:  208:  // check if address is in bounds
+        5:  209:  if (address >= memory->num_values || address < 0) {
+        3:  210:    return false;
+        -:  211:  }
+        -:  212:
+        -:  213:  // get the value into a cell
+        -:  214:  struct RAM_CELL cell;
+        2:  215:  cell.value = value;
+        2:  216:  struct RAM_VALUE* result = &memory->cells[address].value;
+        2:  217:  if (!insert_type(result, cell)) {
+    #####:  218:    return false;
+        -:  219:  }
+        2:  220:  return true;
+        -:  221:}
+        -:  222:
+        -:  223:
+        -:  224://
+        -:  225:// ram_write_cell_by_id
+        -:  226://
+        -:  227:// Writes the given value to a memory cell named by the given
+        -:  228:// identifier. If a memory cell already exists with this name,
+        -:  229:// the existing value is overwritten by the given value. Returns
+        -:  230:// true since this operation always succeeds.
+        -:  231:// 
+        -:  232:// NOTE: if the value being written is a string, it will
+        -:  233:// be duplicated and stored.
+        -:  234:// 
+        -:  235:// NOTE: a variable has to be written to memory before its
+        -:  236:// address becomes valid. Once a variable is written to memory,
+        -:  237:// its address never changes.
+        -:  238://
+       57:  239:bool ram_write_cell_by_id(struct RAM* memory, struct RAM_VALUE value, char* identifier)
+        -:  240:{
+        -:  241:  // search cells for id
+       57:  242:  int address = -1;
+      148:  243:  for (int i = 0; i < memory->num_values; i++) {
+       93:  244:    if (strcmp(memory->cells[i].identifier, identifier) == 0) {
+        2:  245:      address = i;
+        2:  246:      break;
+        -:  247:    }
+        -:  248:  }
+       57:  249:  if (address != -1) {
+        -:  250:    // id exists -> insert_type
+        2:  251:    struct RAM_VALUE* result = &memory->cells[address].value;
+        -:  252:    struct RAM_CELL cell;
+        2:  253:    cell.value = value;
+        2:  254:    if(!insert_type(result, cell)) {
+    #####:  255:      return false;
+        -:  256:    }
+        2:  257:    memory->cells[address].identifier = (char*) malloc(sizeof(char) * strlen(identifier));
+        2:  258:    strcpy(memory->cells[address].identifier, identifier);
+        -:  259:    // memory->cells[address].identifier = identifier;
+        -:  260:  }
+        -:  261:  else { // id doesn't exist
+        -:  262:    // if memory is full, double the memory
+       55:  263:    if (memory->num_values == memory->capacity) { // if ur abt to add the value, max -> need to expand
+        4:  264:      memory->capacity = memory->capacity * 2;
+        4:  265:      memory->cells = (struct RAM_CELL*) realloc(memory->cells, sizeof(struct RAM_CELL) * memory->capacity);
+        -:  266:    }
+        -:  267:
+        -:  268:    // find next empty cell
+       55:  269:    int index = memory->num_values;
+       55:  270:    memory->cells[index].value = value;
+       55:  271:    memory->cells[index].identifier = (char*) malloc(sizeof(char) * strlen(identifier));
+       55:  272:    strcpy(memory->cells[index].identifier, identifier);
+       55:  273:    memory->num_values = memory->num_values + 1;
+        -:  274:  }
+       57:  275:  return true;
+        -:  276:}
+        -:  277:
+        -:  278:
+        -:  279://
+        -:  280:// ram_print
+        -:  281://
+        -:  282:// Prints the contents of memory to the console.
+        -:  283://
+    #####:  284:void ram_print(struct RAM* memory)
+        -:  285:{
+    #####:  286:  printf("**MEMORY PRINT**\n");
+        -:  287:
+    #####:  288:  printf("Capacity: %d\n", memory->capacity);
+    #####:  289:  printf("Num values: %d\n", memory->num_values);
+    #####:  290:  printf("Contents:\n");
+        -:  291:
+    #####:  292:  for (int i = 0; i < memory->num_values; i++)
+        -:  293:  {
+    #####:  294:    printf(" %d: %s, ", i, memory->cells[i].identifier);
+    #####:  295:    struct RAM_VALUE val = memory->cells[i].value;
+        -:  296:
+    #####:  297:    if (val.value_type == RAM_TYPE_INT) {
+    #####:  298:      printf("int, %d", val.types.i);
+    #####:  299:    } else if (val.value_type == RAM_TYPE_REAL) {
+    #####:  300:      printf("real, %lf", val.types.d);
+    #####:  301:    } else if (val.value_type == RAM_TYPE_STR) {
+    #####:  302:      printf("str, '%s'", val.types.s);
+    #####:  303:    } else if (val.value_type == RAM_TYPE_PTR) {
+    #####:  304:      printf("ptr, %d", val.types.i);
+    #####:  305:    } else if (val.value_type == RAM_TYPE_BOOLEAN && val.types.i == 0) {
+    #####:  306:      printf("boolean, False");
+    #####:  307:    } else if (val.value_type == RAM_TYPE_BOOLEAN && val.types.i == 1) {
+    #####:  308:      printf("boolean, True");
+        -:  309:    } else {
+    #####:  310:      printf("none, None");
+        -:  311:    }
+    #####:  312:    printf("\n");
+        -:  313:  }
+        -:  314:
+    #####:  315:  printf("**END PRINT**\n");
+    #####:  316:}
